@@ -79,7 +79,7 @@ def cmd_check(args) -> int:
     try:
         for event in _events(source.lines(stop=lambda: time.monotonic() > deadline), stats):
             if isinstance(event, CsiStat):
-                stats.last_stat = event
+                stats.add_stat(event)
             else:
                 stats.add_packet(event)
                 if lltf_amplitude(event) is None:
@@ -111,9 +111,10 @@ def _print_check_report(stats: LinkStats) -> int:
     if stats.last_stat is not None:
         print(f"接收端丟包     : {stats.last_stat.dropped} (序列埠來不及輸出而丟棄)")
     print(f"損毀/無關行數  : {stats.bad_lines} / {stats.other_lines}")
+    print(f"重啟/跳變      : 發送端計數器跳變 {stats.id_resets} 次 / 接收端重啟 {stats.rx_resets} 次")
 
-    if stats.rate_hz < 30:
-        warnings.append("取樣率低於 30 Hz。舞蹈動作偵測建議 50~100 Hz；檢查發送端 CONFIG_CSI_SEND_PERIOD_MS 與接收端丟包。")
+    if stats.rate_hz < 50:
+        warnings.append("取樣率低於 50 Hz (規格要求 50~100 Hz)；檢查發送端 CONFIG_CSI_SEND_PERIOD_MS 與接收端丟包。")
     if stats.loss_percent > 5:
         warnings.append("遺失率超過 5%。兩板距離、遮蔽或 2.4 GHz 干擾都可能造成。")
     if stats.last_stat is not None and stats.last_stat.dropped > 0:
@@ -122,6 +123,8 @@ def _print_check_report(stats: LinkStats) -> int:
         warnings.append("訊號偏弱 (RSSI < -75 dBm)：拉近兩板，或改用外接天線。")
     if stats.unusable:
         warnings.append(f"{stats.unusable} 個封包不是 20 MHz LLTF，已被忽略。")
+    if stats.rx_resets:
+        warnings.append(f"接收端在量測期間重啟了 {stats.rx_resets} 次 (供電不穩、USB 線接觸不良，或程式當機)。")
     if stats.id_resets > 1:
         warnings.append("發送端計數器多次跳變，發送端可能在重啟 (供電不穩?)。")
 
@@ -167,7 +170,7 @@ def cmd_record(args) -> int:
                     stats.add_packet(event)
                     out.write(line + "\n")
                 elif isinstance(event, CsiStat):
-                    stats.last_stat = event
+                    stats.add_stat(event)
                 if time.monotonic() >= next_report:
                     next_report += 1
                     print(f"\r  {stats.packets} 封包 ({stats.rate_hz:.0f} Hz)", end="", flush=True)

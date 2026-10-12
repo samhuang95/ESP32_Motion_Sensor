@@ -12,6 +12,7 @@ class LinkStats:
     packets: int = 0
     lost: int = 0  # missing sender counters (lost over the air or dropped in the receiver)
     id_resets: int = 0  # sender restarted / counter jumped
+    rx_resets: int = 0  # receiver restarted (its uptime in CSI_STAT went backwards)
     bad_lines: int = 0
     other_lines: int = 0
     unusable: int = 0  # packets that are not 20 MHz LLTF
@@ -24,6 +25,11 @@ class LinkStats:
     last_stat: Optional[CsiStat] = None
     _last_id: Optional[int] = None
     _last_ts: Optional[int] = None
+
+    def add_stat(self, stat: CsiStat) -> None:
+        if self.last_stat is not None and stat.device_ms < self.last_stat.device_ms:
+            self.rx_resets += 1
+        self.last_stat = stat
 
     def add_packet(self, p: CsiPacket) -> None:
         self.packets += 1

@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from csi_motion import cli
-from csi_motion.protocol import ID_UNKNOWN, CsiPacket
+from csi_motion.protocol import ID_UNKNOWN, CsiPacket, CsiStat
 from csi_motion.stats import LinkStats
 
 
@@ -66,3 +66,20 @@ def test_record_then_replay(tmp_path, capsys):
 def test_record_rejects_bad_label(tmp_path):
     with pytest.raises(SystemExit):
         cli.main(["record", "--simulate", "--label", "../evil", "--seconds", "1", "--out", str(tmp_path)])
+
+
+def test_receiver_restart_detected_from_uptime_going_backwards():
+    s = LinkStats()
+    for ms in (1000, 2000, 3000, 500, 1500):  # reboot between 3000 and 500
+        s.add_stat(CsiStat(ms, 100, 0))
+    assert s.rx_resets == 1 and s.last_stat.device_ms == 1500
+
+
+def test_check_warns_below_50_hz(tmp_path, capsys):
+    from csi_motion.protocol import format_line
+
+    f = tmp_path / "slow.csv"
+    f.write_text("\n".join(format_line(pkt(i, i * 40_000)) for i in range(60)) + "\n")  # 25 Hz
+    assert cli.main(["check", "--file", str(f), "--seconds", "5", "--pace", "10000"]) == 0
+    out = capsys.readouterr().out
+    assert "低於 50 Hz" in out
