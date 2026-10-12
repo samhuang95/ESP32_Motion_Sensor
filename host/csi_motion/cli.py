@@ -114,7 +114,7 @@ def _print_check_report(stats: LinkStats) -> int:
     print(f"重啟/跳變      : 發送端計數器跳變 {stats.id_resets} 次 / 接收端重啟 {stats.rx_resets} 次")
 
     if stats.rate_hz < 50:
-        warnings.append("取樣率低於 50 Hz (規格要求 50~100 Hz)；檢查發送端 CONFIG_CSI_SEND_PERIOD_MS 與接收端丟包。")
+        warnings.append("取樣率低於 50 Hz (規格最低要求 50 Hz，預設 100 Hz)；檢查發送端 CONFIG_CSI_SEND_PERIOD_MS 與接收端丟包。")
     if stats.loss_percent > 5:
         warnings.append("遺失率超過 5%。兩板距離、遮蔽或 2.4 GHz 干擾都可能造成。")
     if stats.last_stat is not None and stats.last_stat.dropped > 0:

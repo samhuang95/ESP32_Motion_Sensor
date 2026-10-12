@@ -1,6 +1,6 @@
 # ESP32 Motion Sensor
 
-用兩塊 **ESP32 (ESP-WROOM-32)** 的 Wi-Fi CSI（通道狀態資訊）做「無接觸動作偵測」。原始規格見 [`spec.pdf`](spec.pdf)（V1.0），第一階段的新規格見 [`specs/phase1.md`](specs/phase1.md)。
+用兩塊 **ESP32 (ESP-WROOM-32)** 的 Wi-Fi CSI（通道狀態資訊）做「無接觸動作偵測」。規格見 [`specs/phase1.md`](specs/phase1.md)。
 
 ```
  發送端 ESP32                接收端 ESP32                 PC
@@ -26,9 +26,9 @@ WiFi 骨架重建（WiPose、DensePose From WiFi、Person-in-WiFi 3D）是真實
 兩塊 ESP32 只有一條 1×1 的鏈路，回答得了「有沒有人在動、動作像哪一類」，回答不了「手肘在哪裡」。
 與 ESP32 相關的開源專案 [ruvnet/RuView](https://github.com/ruvnet/RuView) 自己承認單顆 ESP32 的即時 17 關節模型只有 PCK@20 ≈ 3%，網路上看到的火柴人展示請小心，可能是模擬資料或預錄動畫（見其 [issue #509](https://github.com/ruvnet/RuView/issues/509)）。
 
-所以 `spec.pdf` 第 6 節寫的「非骨架追蹤、事件分類器」是正確的。若要火柴人，請用攝影機 + MediaPipe；若只想要示意動畫，也只能是「分類結果觸發的動畫」，不是你身體的真實姿態。
+所以本專案的定位是「動作事件偵測／分類」，不做骨架追蹤（見 [`specs/phase1.md`](specs/phase1.md) 第 1.2 節）。若要火柴人，請用攝影機 + MediaPipe；若只想要示意動畫，也只能是「分類結果觸發的動畫」，不是你身體的真實姿態。
 
-## 硬體與擺放（依 spec）
+## 硬體與擺放（詳見 [`specs/phase1.md`](specs/phase1.md) 第 4 節）
 
 - 2 × ESP-WROOM-32 開發板，各自用 USB 供電（發送端可接行動電源）。接收端要接 PC。
 - 兩板相距 **2 m**、高度 **1.0 ~ 1.2 m**（腰到胸），固定在腳架上，天線方向一致。
@@ -102,17 +102,8 @@ host/
 
 韌體由 Espressif [esp-csi](https://github.com/espressif/esp-csi) 的 get-started 範例（Apache-2.0 / CC0）改寫：改成只用 HT20、把序列埠輸出移出 Wi-Fi 回呼（依 ESP-IDF 文件建議用 queue）、`esp_wifi_set_mac` 放在 `esp_wifi_start` 之前（API 文件要求介面停用時才能呼叫）。
 
-## 與 spec.pdf 的差異
-
-| spec | 目前做法 | 原因 |
-|---|---|---|
-| ESP32-S3 | 原版 ESP32（ESP-WROOM-32） | 你手上的板子；ESP-IDF 支援，但沒有增益補償 |
-| Edge Impulse 部署在 ESP32 | 階段 1 先在 PC 端處理 | 先要有真實資料才知道模型該多大；spec 的架構本來就允許 PC 端推論 |
-| 4 類動作分類（Idle/Jump/Spin/Arm_Wave） | 尚未做；已有 `record` 可收資料 | 需要你的真實資料才能訓練與評估 |
-| MIDI / 視覺特效 | 尚未做 | 依賴分類器 |
-
 ## 下一步
 
 1. 在實體板子上跑 `check` → `live`，確認動作偵測有效，回報取樣率與誤報情形。
-2. 依 spec 的四類動作各錄多段資料（換位置、換時間也要錄，否則模型只會記住房間）。
+2. 依 [`specs/phase1.md`](specs/phase1.md) 第 8 節的四類動作（idle / jump / spin / arm_wave）各錄多段資料（換位置、換時間也要錄，否則模型只會記住房間）。
 3. 訓練分類器、串 MIDI / 特效。
