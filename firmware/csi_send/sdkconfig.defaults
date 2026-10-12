@@ -1,0 +1,4 @@
+# 1 ms tick so the packet interval can be set with 1 ms resolution
+CONFIG_FREERTOS_HZ=1000
+# Do not aggregate TX frames, keep one packet per ESP-NOW send
+CONFIG_ESP_WIFI_AMPDU_TX_ENABLED=n

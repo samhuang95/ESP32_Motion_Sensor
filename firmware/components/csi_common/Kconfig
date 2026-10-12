@@ -1,0 +1,20 @@
+menu "CSI Motion Sensor (common)"
+
+    config CSI_CHANNEL
+        int "Wi-Fi channel used by both sender and receiver (2.4 GHz)"
+        range 1 13
+        default 11
+        help
+            Sender and receiver MUST use the same channel. Pick the least
+            congested channel in your room (check with a phone Wi-Fi analyzer).
+
+    config CSI_TX_POWER_QDBM
+        int "Sender TX power in 0.25 dBm units (8..84)"
+        range 8 84
+        default 40
+        help
+            40 = 10 dBm. Lower power shrinks the sensing area and reduces
+            interference from far away. 84 = 21 dBm (maximum).
+            Used by the sender only.
+
+endmenu

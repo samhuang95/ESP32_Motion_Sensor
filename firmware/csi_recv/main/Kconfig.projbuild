@@ -1,0 +1,19 @@
+menu "CSI Receiver"
+
+    config CSI_USE_HTLTF
+        bool "Also capture HT-LTF (doubles the data per packet)"
+        default n
+        help
+            Off: only the legacy LTF (64 subcarriers, 128 values per packet) is
+            captured. That is enough for motion detection. A line is roughly
+            440 bytes, about 44 KB/s at 100 packets/s (921600 baud carries ~92 KB/s).
+            On: HT-LTF is appended (256 values per packet, ~76 KB/s at 100
+            packets/s). That leaves little margin, so use <= 50 packets/s and
+            watch the "dropped" counter reported by `csi-motion check`.
+
+    config CSI_QUEUE_LEN
+        int "Packets buffered between the Wi-Fi task and the serial writer"
+        range 4 256
+        default 32
+
+endmenu
