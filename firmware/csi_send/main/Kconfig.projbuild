@@ -1,0 +1,11 @@
+menu "CSI Sender"
+
+    config CSI_SEND_PERIOD_MS
+        int "Interval between ESP-NOW packets (ms)"
+        range 2 1000
+        default 10
+        help
+            10 ms = 100 packets/s. The receiver gets one CSI sample per packet,
+            so this is the CSI sampling rate. specs/phase1.md requires at least 50 Hz (default 100).
+
+endmenu
