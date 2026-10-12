@@ -139,10 +139,13 @@ class SimulatedSource:
                     time.sleep(delay)
 
     def lines(self, stop: Optional[StopFn] = None) -> Iterator[str]:
+        per_second = max(1, int(self.rate_hz))
         for packet in self.packets():
             if stop and stop():
                 return
             yield format_line(packet)
+            if (packet.id + 1) % per_second == 0:  # the real receiver prints CSI_STAT once per second
+                yield f"CSI_STAT,{(packet.id + 1) * 1000 // per_second},{packet.id + 1},0"
 
     def close(self) -> None:
         pass

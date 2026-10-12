@@ -75,7 +75,7 @@ def cmd_check(args) -> int:
     source = _make_source(args)
     stats = LinkStats()
     deadline = time.monotonic() + args.seconds
-    print(f"收集 {args.seconds:.0f} 秒的資料…")
+    print(f"收集 {args.seconds:.0f} 秒的資料…", file=sys.stderr if args.json else sys.stdout)
     try:
         for event in _events(source.lines(stop=lambda: time.monotonic() > deadline), stats):
             if isinstance(event, CsiStat):
@@ -86,38 +86,24 @@ def cmd_check(args) -> int:
                     stats.unusable += 1
     finally:
         source.close()
-    return _print_check_report(stats)
 
-
-def _print_check_report(stats: LinkStats) -> int:
-    print("\n=== CSI 連線檢查 ===")
+    summary = _check_summary(stats, args.expect_rate)
+    if args.json:
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+    else:
+        _print_check_report(stats, summary)
     if stats.packets == 0:
-        print("沒有收到任何 CSI_DATA。可能原因:")
-        print("  1. 發送端沒通電，或沒有燒錄 csi_send")
-        print("  2. 兩塊板子的 Wi-Fi 通道不同 (CONFIG_CSI_CHANNEL 要一致)")
-        print("  3. 序列埠速率不對 (接收端預設 921600)，或選錯了埠 (--port)")
-        print("  4. 接收端剛重啟，等 1~2 秒再試")
-        print(f"(收到 {stats.other_lines} 行非 CSI 文字，{stats.bad_lines} 行損毀的 CSI 行)")
         return 1
+    return 2 if (args.strict and not summary["ac1"]["pass"]) else 0
 
+
+def _warnings(stats: LinkStats) -> List[str]:
     warnings: List[str] = []
-    print(f"收到封包數     : {stats.packets}")
-    print(f"取樣率         : {stats.rate_hz:.1f} Hz (以接收端時鐘計算)")
-    print(f"遺失率         : {stats.loss_percent:.1f} % (依發送端計數器，{stats.lost} 個)")
-    print(f"RSSI           : 平均 {np.mean(stats.rssi):.0f} dBm (最小 {min(stats.rssi)}, 最大 {max(stats.rssi)})")
-    print(f"底噪           : 平均 {np.mean(stats.noise_floor):.0f} dBm")
-    print(f"通道           : {sorted(stats.channels)}")
-    print(f"每包 CSI 長度  : {sorted(stats.lengths)} (128 = 只含 LLTF)")
-    if stats.last_stat is not None:
-        print(f"接收端丟包     : {stats.last_stat.dropped} (序列埠來不及輸出而丟棄)")
-    print(f"損毀/無關行數  : {stats.bad_lines} / {stats.other_lines}")
-    print(f"重啟/跳變      : 發送端計數器跳變 {stats.id_resets} 次 / 接收端重啟 {stats.rx_resets} 次")
-
     if stats.rate_hz < 50:
         warnings.append("取樣率低於 50 Hz (規格最低要求 50 Hz，預設 100 Hz)；檢查發送端 CONFIG_CSI_SEND_PERIOD_MS 與接收端丟包。")
     if stats.loss_percent > 5:
         warnings.append("遺失率超過 5%。兩板距離、遮蔽或 2.4 GHz 干擾都可能造成。")
-    if stats.last_stat is not None and stats.last_stat.dropped > 0:
+    if stats.dropped_in_window > 0:
         warnings.append("接收端因序列埠太慢而丟包：降低發送頻率，或提高序列埠速率 (需韌體與 --baud 同步調整)。")
     if float(np.mean(stats.rssi)) < -75:
         warnings.append("訊號偏弱 (RSSI < -75 dBm)：拉近兩板，或改用外接天線。")
@@ -127,14 +113,72 @@ def _print_check_report(stats: LinkStats) -> int:
         warnings.append(f"接收端在量測期間重啟了 {stats.rx_resets} 次 (供電不穩、USB 線接觸不良，或程式當機)。")
     if stats.id_resets > 1:
         warnings.append("發送端計數器多次跳變，發送端可能在重啟 (供電不穩?)。")
+    return warnings
+
+
+def _check_summary(stats: LinkStats, expect_rate: float) -> dict:
+    """Machine-readable result of `check` (also printed by --json)."""
+    ac1_pass, ac1_reasons = stats.ac1(expect_rate)
+    summary = {
+        "packets": stats.packets,
+        "bad_lines": stats.bad_lines,
+        "other_lines": stats.other_lines,
+        "ac1": {"pass": ac1_pass, "expect_rate_hz": expect_rate, "reasons": ac1_reasons},
+    }
+    if stats.packets:
+        summary.update(
+            rate_hz=round(stats.rate_hz, 2),
+            loss_percent=round(stats.loss_percent, 2),
+            lost=stats.lost,
+            rssi_mean=round(float(np.mean(stats.rssi)), 1),
+            rssi_min=int(min(stats.rssi)),
+            rssi_max=int(max(stats.rssi)),
+            noise_floor_mean=round(float(np.mean(stats.noise_floor)), 1),
+            channels=sorted(int(c) for c in stats.channels),
+            csi_lengths=sorted(int(n) for n in stats.lengths),
+            unusable=stats.unusable,
+            receiver_stat_seen=stats.last_stat is not None,
+            receiver_dropped_in_window=stats.dropped_in_window,
+            sender_counter_jumps=stats.id_resets,
+            receiver_restarts=stats.rx_resets,
+            warnings=_warnings(stats),
+        )
+    return summary
+
+
+def _print_check_report(stats: LinkStats, summary: dict) -> None:
+    print("\n=== CSI 連線檢查 ===")
+    if stats.packets == 0:
+        print("沒有收到任何 CSI_DATA。可能原因:")
+        print("  1. 發送端沒通電，或沒有燒錄 csi_send")
+        print("  2. 兩塊板子的 Wi-Fi 通道不同 (CONFIG_CSI_CHANNEL 要一致)")
+        print("  3. 序列埠速率不對 (接收端預設 921600)，或選錯了埠 (--port)")
+        print("  4. 接收端剛重啟，等 1~2 秒再試")
+        print(f"(收到 {stats.other_lines} 行非 CSI 文字，{stats.bad_lines} 行損毀的 CSI 行)")
+        return
+
+    print(f"收到封包數     : {stats.packets}")
+    print(f"取樣率         : {stats.rate_hz:.1f} Hz (以接收端時鐘計算)")
+    print(f"遺失率         : {stats.loss_percent:.1f} % (依發送端計數器，{stats.lost} 個)")
+    print(f"RSSI           : 平均 {np.mean(stats.rssi):.0f} dBm (最小 {min(stats.rssi)}, 最大 {max(stats.rssi)})")
+    print(f"底噪           : 平均 {np.mean(stats.noise_floor):.0f} dBm")
+    print(f"通道           : {sorted(stats.channels)}")
+    print(f"每包 CSI 長度  : {sorted(stats.lengths)} (128 = 只含 LLTF)")
+    if stats.last_stat is not None:
+        print(f"接收端丟包     : 量測期間 {stats.dropped_in_window} 個 (序列埠來不及輸出而丟棄；開機至今 {stats.last_stat.dropped})")
+    print(f"損毀/無關行數  : {stats.bad_lines} / {stats.other_lines}")
+    print(f"重啟/跳變      : 發送端計數器跳變 {stats.id_resets} 次 / 接收端重啟 {stats.rx_resets} 次")
 
     print()
-    if warnings:
-        for w in warnings:
-            print("警告:", w)
+    for w in summary["warnings"]:
+        print("警告:", w)
+    ac1 = summary["ac1"]
+    if ac1["pass"]:
+        print(f"AC-1 (串流健康，期望 {ac1['expect_rate_hz']:.0f} Hz): 通過。可以用 `csi-motion live` 觀察動作偵測。")
     else:
-        print("結果: 正常。可以用 `csi-motion live` 觀察動作偵測。")
-    return 0
+        print(f"AC-1 (串流健康，期望 {ac1['expect_rate_hz']:.0f} Hz): 未通過")
+        for r in ac1["reasons"]:
+            print("  -", r)
 
 
 _LABEL_RE = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -171,6 +215,7 @@ def cmd_record(args) -> int:
                     out.write(line + "\n")
                 elif isinstance(event, CsiStat):
                     stats.add_stat(event)
+                    out.write(line + "\n")
                 if time.monotonic() >= next_report:
                     next_report += 1
                     print(f"\r  {stats.packets} 封包 ({stats.rate_hz:.0f} Hz)", end="", flush=True)
@@ -186,6 +231,7 @@ def cmd_record(args) -> int:
         "packets": stats.packets,
         "rate_hz": round(stats.rate_hz, 2),
         "loss_percent": round(stats.loss_percent, 2),
+        "receiver_dropped": stats.dropped_in_window,
         "simulated": bool(args.simulate),
         "source": args.file or args.port or "simulate",
     }
@@ -254,6 +300,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("check", help="檢查 CSI 串流是否健康 (取樣率、遺失率、訊號強度)")
     _add_source_args(p)
     p.add_argument("--seconds", type=float, default=10.0)
+    p.add_argument("--expect-rate", type=float, default=100.0, help="發送端設定的取樣率 (Hz)，AC-1 要求達到其 90%%")
+    p.add_argument("--json", action="store_true", help="只輸出機器可讀的 JSON (給自動化測試用)")
+    p.add_argument("--strict", action="store_true", help="AC-1 未通過時以結束碼 2 離開")
     p.set_defaults(func=cmd_check)
 
     p = sub.add_parser("record", help="錄製帶標籤的 CSI 資料 (之後訓練分類器用)")
